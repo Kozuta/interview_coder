@@ -1,0 +1,35 @@
+name: example
+research_topic: "Исследование пользовательского опыта работы с [название продукта / процесса]"
+research_goals: "Понять, как пользователи решают [задачу] и какие барьеры мешают эффективной работе"
+hypotheses:
+- "Пользователи не используют часть функций из-за незнания о них"
+research_questions:
+- "Как пользователи сейчас решают [задачу]?"
+- "Какие инструменты используют и почему?"
+- "С какими проблемами и барьерами сталкиваются?"
+- "Что мотивирует их менять текущий подход?"
+related_themes:
+- основная задача пользователей
+- используемые инструменты и альтернативы
+- проблемы и барьеры
+- триггеры изменения поведения
+business_context: ''
+respondent_speaker: Speaker 2
+key_product_tasks: []
+respondent_fields:
+- key: segment
+  label: Сегмент
+  field_type: text
+respondents:
+- id: R01
+  transcript_file: "transcript 1.docx"
+  interview_date: "2025-01-15"
+  segment: "SMB"
+  extra: {}
+run_mode: test
+test_scope:
+  type: on_topic_utterances
+  value: 20
+skip_filter: false
+llm_model: deepseek-chat
+transcripts_dir: transcripts

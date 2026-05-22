@@ -1,0 +1,32 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Environment — API keys
+.env
+
+# Research data — transcripts, outputs and interim artefacts must never be committed
+*.docx
+*.doc
+*.xlsx
+*.xls
+transcripts/
+projects/*/transcripts/
+projects/*/output/
+Гайд по кодированию наблюдений.md
+
+# Internal planning and scratch files
+todo.md
+docs/plan.md
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.db
+data/
