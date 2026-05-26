@@ -74,12 +74,25 @@ def _parse_json_content(content: str) -> Any:
     if content.startswith("```"):
         content = re.sub(r"^```(?:json)?\s*", "", content)
         content = re.sub(r"\s*```$", "", content)
+    content = content.strip()
+
     try:
         return json.loads(content)
-    except json.JSONDecodeError as e:
-        truncated = len(content) > 500
-        hint = " (похоже, ответ обрезан — превышен лимит токенов)" if truncated else ""
-        raise RuntimeError(f"Ошибка парсинга JSON{hint}: {e}\n---\n{content[-300:]}") from e
+    except json.JSONDecodeError:
+        pass
+
+    # LLM sometimes wraps JSON in prose — try to extract the first object or array
+    for pattern in (r"\{[\s\S]*\}", r"\[[\s\S]*\]"):
+        m = re.search(pattern, content)
+        if m:
+            try:
+                return json.loads(m.group())
+            except json.JSONDecodeError:
+                pass
+
+    truncated = len(content) > 500
+    hint = " (похоже, ответ обрезан — превышен лимит токенов)" if truncated else ""
+    raise RuntimeError(f"Ошибка парсинга JSON{hint}:\n---\n{content[-500:]}")
 
 
 def chat_json(
