@@ -105,6 +105,14 @@ def _atomize(
 ) -> list[Observation]:
     blocks = _build_coding_blocks(transcript)
     if not blocks:
+        respondent_utts = sum(1 for u in transcript.utterances if u.is_respondent)
+        if respondent_utts == 0:
+            speakers = {u.speaker for u in transcript.utterances}
+            print(
+                f"[ПРЕДУПРЕЖДЕНИЕ] {transcript.respondent_id}: ни одна реплика не помечена "
+                f"как respondent. Спикеры в файле: {speakers}. "
+                f"Проверь поле 'Спикер' в настройках."
+            )
         return []
 
     utt_by_index = {u.index: u.text for u in transcript.utterances}

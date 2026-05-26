@@ -261,9 +261,9 @@ with tab_setup:
     )
     st.session_state.resp_df = edited_df
 
-    # ── Rename column ─────────────────────────────────────────────────────────
+    # ── Rename / delete column ────────────────────────────────────────────────
     if st.session_state.extra_cols:
-        with st.expander("Переименовать столбец"):
+        with st.expander("Управление столбцами"):
             rc1, rc2, rc3 = st.columns([3, 3, 1])
             with rc1:
                 col_to_rename = st.selectbox(
@@ -285,8 +285,22 @@ with tab_setup:
                         )
                         st.rerun()
 
+            dc1, dc2 = st.columns([5, 1])
+            with dc1:
+                col_to_delete = st.selectbox(
+                    "Удалить столбец", st.session_state.extra_cols, key="delete_col_src"
+                )
+            with dc2:
+                if st.button("Удалить", type="secondary", key="delete_col_btn"):
+                    st.session_state.extra_cols.remove(col_to_delete)
+                    st.session_state.resp_df = st.session_state.resp_df.drop(
+                        columns=[col_to_delete], errors="ignore"
+                    )
+                    st.rerun()
+
     id_col = edited_df.get("id", pd.Series(dtype=str)).astype(str).str.strip()
     file_col = edited_df.get("transcript_file", pd.Series(dtype=str)).astype(str).str.strip()
+    speaker_col = edited_df.get("respondent_speaker", pd.Series(dtype=str)).astype(str).str.strip()
     if edited_df.empty or id_col.replace("nan", "").eq("").all():
         st.info(
             f"Список пуст — при запуске программа автоматически найдёт все .docx/.txt "
@@ -298,6 +312,9 @@ with tab_setup:
         ]
         if not missing.empty:
             st.warning(f"⚠️ {len(missing)} строк без Файла или ID — они будут пропущены при сохранении.")
+        bad_speaker = edited_df[speaker_col.replace("nan", "").eq("")]
+        if not bad_speaker.empty:
+            st.warning(f"⚠️ {len(bad_speaker)} строк без Спикера — реплики респондента не будут распознаны и наблюдения не появятся.")
 
     # ── Save ──────────────────────────────────────────────────────────────────
     if st.button("Сохранить project.yaml"):
