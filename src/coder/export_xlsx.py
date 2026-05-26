@@ -62,11 +62,13 @@ def export_workbook(
     # Респонденты
     ws = wb.create_sheet("Респонденты")
     field_keys = [f.key for f in config.respondent_fields]
-    headers = ["ID", "Файл", "Дата", "Сегмент", *field_keys]
+    headers = ["ID", "Файл", "Дата", *field_keys]
     _sheet_headers(ws, headers)
     for r in config.respondents:
-        row = [r.id, r.transcript_file, r.interview_date, r.segment]
-        row.extend(r.extra.get(k, "") for k in field_keys)
+        meta = {"segment": r.segment, "interview_date": r.interview_date}
+        meta.update(r.extra)
+        row = [r.id, r.transcript_file, r.interview_date]
+        row.extend(meta.get(k, "") or "" for k in field_keys)
         ws.append(row)
     _autosize(ws)
 
@@ -77,39 +79,43 @@ def export_workbook(
     headers = [
         "ID",
         "Респондент",
-        "Дата",
         *resp_field_labels,
-        "Атом",
-        "Цитата",
-        "Содержание",
+        "Цитата респондента",
+        "Фрагмент интервью",
+        "Наблюдение",
         "Контекст",
+        "Следствие",
         "Тип",
         "Кластер",
         "Категория",
         "Код",
         "Код 2",
         "Модальность",
+        "Дата",
+        "Содержание",
         "Ключ. задача",
     ]
     _sheet_headers(ws, headers)
-    for o in sorted(observations, key=lambda x: (x.respondent_id, x.affinity_cluster, x.id)):
+    for o in sorted(observations, key=lambda x: (x.respondent_id, x.utterance_index or 0)):
         resp_values = [str(o.respondent_meta.get(k, "") or "") for k in resp_field_keys]
         ws.append(
             [
                 o.id,
                 o.respondent_id,
-                str(o.respondent_meta.get("interview_date", "") or ""),
                 *resp_values,
-                o.atom,
                 o.quote,
-                o.content,
+                o.interview_fragment,
+                o.atom,
                 o.context,
+                o.consequence or "-",
                 o.kind,
                 o.affinity_cluster,
                 o.normalized_category,
                 o.primary_code,
                 o.secondary_code or "",
                 ", ".join(o.modality_tags),
+                str(o.respondent_meta.get("interview_date", "") or ""),
+                o.content,
                 "Да" if o.is_key_task else "Нет",
             ]
         )

@@ -55,14 +55,14 @@ def get_base_url() -> str | None:
 
 def resolve_model(config_model: str | None = None) -> str:
     """Имя модели: project.yaml → LLM_MODEL в .env → deepseek-chat / gpt-4o-mini."""
-    if config_model and config_model not in ("gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"):
+    if config_model:
         return config_model
     env_model = os.getenv("LLM_MODEL")
     if env_model:
         return env_model
     if _is_deepseek(get_base_url()):
         return DEFAULT_DEEPSEEK_MODEL
-    return config_model or "gpt-4o-mini"
+    return "gpt-4o-mini"
 
 
 def get_client() -> OpenAI:
@@ -74,7 +74,12 @@ def _parse_json_content(content: str) -> Any:
     if content.startswith("```"):
         content = re.sub(r"^```(?:json)?\s*", "", content)
         content = re.sub(r"\s*```$", "", content)
-    return json.loads(content)
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        truncated = len(content) > 500
+        hint = " (похоже, ответ обрезан — превышен лимит токенов)" if truncated else ""
+        raise RuntimeError(f"Ошибка парсинга JSON{hint}: {e}\n---\n{content[-300:]}") from e
 
 
 def chat_json(
@@ -101,7 +106,8 @@ def chat_json(
             **kwargs,
             response_format={"type": "json_object"},
         )
-    except Exception:
+    except Exception as e:
+        print(f"[llm] json_object mode не поддерживается ({e}), повтор без response_format")
         response = client.chat.completions.create(**kwargs)
 
     content = response.choices[0].message.content or "{}"

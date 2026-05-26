@@ -75,6 +75,15 @@ def parse_transcript_file(
     return parse_transcript_text(text, respondent_id, path.name, respondent_speaker)
 
 
+_SUPPORTED_EXTENSIONS = {".docx", ".txt"}
+
+
+def _filename_to_id(stem: str, fallback_index: int) -> str:
+    sanitized = re.sub(r"[^\w]", "_", stem).strip("_")
+    sanitized = re.sub(r"_+", "_", sanitized)
+    return sanitized or f"R{fallback_index:02d}"
+
+
 def load_project_transcripts(
     project_dir: Path,
     transcripts_subdir: str,
@@ -82,12 +91,28 @@ def load_project_transcripts(
     respondent_speaker: str,
 ) -> list[ParsedTranscript]:
     tdir = project_dir / transcripts_subdir
-    results: list[ParsedTranscript] = []
-    for resp in respondents:
-        fpath = tdir / resp.transcript_file
-        if not fpath.exists():
-            raise FileNotFoundError(f"Транскрипт не найден: {fpath}")
-        results.append(
-            parse_transcript_file(fpath, resp.id, respondent_speaker)
-        )
-    return results
+
+    if respondents:
+        results: list[ParsedTranscript] = []
+        for resp in respondents:
+            fpath = tdir / resp.transcript_file
+            if not fpath.exists():
+                raise FileNotFoundError(f"Транскрипт не найден: {fpath}")
+            speaker = resp.respondent_speaker or respondent_speaker
+            results.append(parse_transcript_file(fpath, resp.id, speaker))
+        return results
+
+    # Авто-обнаружение: сканируем папку transcripts/
+    if not tdir.exists():
+        raise FileNotFoundError(f"Папка транскриптов не найдена: {tdir}")
+    files = sorted(
+        p for p in tdir.iterdir()
+        if p.suffix.lower() in _SUPPORTED_EXTENSIONS and not p.name.startswith(".")
+    )
+    if not files:
+        raise FileNotFoundError(f"Транскрипты не найдены в {tdir}")
+    print(f"Авто-обнаружение: найдено {len(files)} транскриптов в {tdir}")
+    return [
+        parse_transcript_file(fpath, _filename_to_id(fpath.stem, i), respondent_speaker)
+        for i, fpath in enumerate(files, start=1)
+    ]

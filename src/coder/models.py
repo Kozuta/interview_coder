@@ -41,6 +41,7 @@ class TestScope(BaseModel):
 class RespondentMeta(BaseModel):
     id: str
     transcript_file: str
+    respondent_speaker: str | None = None
     interview_date: str | None = None
     segment: str | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
@@ -69,9 +70,11 @@ class Observation(BaseModel):
     respondent_id: str
     quote: str
     atom: str
+    interview_fragment: str = ""
     context: str
+    consequence: str = ""
     content: str = ""
-    kind: Literal["observation", "insight"] = "observation"
+    kind: Literal["Наблюдение", "Инсайт"] = "Наблюдение"
     affinity_cluster: str = ""
     primary_code: str = ""
     secondary_code: str | None = None

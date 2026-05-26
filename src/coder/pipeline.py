@@ -76,9 +76,24 @@ def _build_coding_blocks(transcript: ParsedTranscript) -> list[dict]:
     return blocks
 
 
-def _context_before(transcript: ParsedTranscript, index: int, n: int = 3) -> str:
+def _context_before(transcript: ParsedTranscript, index: int, n: int = 5) -> str:
     prior = [u for u in transcript.utterances if u.index < index][-n:]
-    return " | ".join(f"{p.speaker}: {p.text[:200]}" for p in prior)
+    return " | ".join(f"{p.speaker}: {p.text[:400]}" for p in prior)
+
+
+def _interview_fragment(transcript: ParsedTranscript, utt_index: int, n: int = 1) -> str:
+    """Verbatim passage: N prior utterances + current utterance with timestamps."""
+    current = next((u for u in transcript.utterances if u.index == utt_index), None)
+    if current is None:
+        return ""
+    prior = [u for u in transcript.utterances if u.index < utt_index][-n:]
+    parts = []
+    for u in prior:
+        ts = u.timestamp_raw or ""
+        parts.append(f"{ts}\n{u.speaker}\n{u.text}")
+    ts = current.timestamp_raw or ""
+    parts.append(f"{ts}\n{current.speaker}\n{current.text}")
+    return "\n\n".join(parts)
 
 
 def _atomize(
@@ -110,7 +125,9 @@ def _atomize(
                     respondent_id=transcript.respondent_id,
                     quote=utt_by_index.get(utt_idx, "") if utt_idx is not None else "",
                     atom=raw.get("atom", ""),
+                    interview_fragment=_interview_fragment(transcript, utt_idx) if utt_idx is not None else "",
                     context=raw.get("context", raw.get("context_hint", "")),
+                    consequence=raw.get("consequence", "-"),
                     content=raw.get("content", ""),
                     utterance_index=utt_idx,
                     respondent_meta=_respondent_meta(config, transcript.respondent_id),
@@ -123,32 +140,36 @@ def _code_and_cluster(client, model: str, observations: list[Observation]) -> li
     if not observations:
         return []
 
-    payload = [
-        {
-            "temp_id": i,
-            "atom": o.atom,
-            "quote": o.quote,
-        }
-        for i, o in enumerate(observations)
-    ]
-    code_result = chat_json(client, model, code_observations_prompt(json.dumps(payload, ensure_ascii=False)))
-    coded = {c["temp_id"]: c for c in code_result.get("coded", [])}
-    for i, o in enumerate(observations):
-        c = coded.get(i, {})
-        o.primary_code = c.get("primary_code", "")
-        o.secondary_code = c.get("secondary_code")
-        o.modality_tags = c.get("modality_tags", [])
-        o.kind = c.get("kind", "observation")
-        o.is_key_task = bool(c.get("is_key_task", False))
+    # Кодировка чанками по 30: quote может быть длинным, ответ растёт быстро
+    code_chunk = 30
+    for start in range(0, len(observations), code_chunk):
+        chunk = observations[start : start + code_chunk]
+        payload = [
+            {"temp_id": i, "atom": o.atom, "quote": o.quote}
+            for i, o in enumerate(chunk)
+        ]
+        code_result = chat_json(client, model, code_observations_prompt(json.dumps(payload, ensure_ascii=False)))
+        coded = {c["temp_id"]: c for c in code_result.get("coded", [])}
+        for i, o in enumerate(chunk):
+            c = coded.get(i, {})
+            o.primary_code = c.get("primary_code", "")
+            o.secondary_code = c.get("secondary_code")
+            o.modality_tags = c.get("modality_tags", [])
+            o.kind = c.get("kind", "observation")
+            o.is_key_task = bool(c.get("is_key_task", False))
 
-    aff_payload = [{"temp_id": i, "atom": o.atom} for i, o in enumerate(observations)]
-    aff_result = chat_json(client, model, affinity_prompt(json.dumps(aff_payload, ensure_ascii=False)))
-    for item in aff_result.get("clusters", []):
-        idx = item.get("temp_id")
-        if idx is None or idx >= len(observations):
-            continue
-        observations[idx].affinity_cluster = item.get("affinity_cluster", "")
-        observations[idx].normalized_category = item.get("normalized_category", "")
+    # Affinity чанками по 50: только atom, вывод компактнее
+    aff_chunk = 50
+    for start in range(0, len(observations), aff_chunk):
+        chunk = observations[start : start + aff_chunk]
+        aff_payload = [{"temp_id": i, "atom": o.atom} for i, o in enumerate(chunk)]
+        aff_result = chat_json(client, model, affinity_prompt(json.dumps(aff_payload, ensure_ascii=False)))
+        for item in aff_result.get("clusters", []):
+            idx = item.get("temp_id")
+            if idx is None or idx >= len(chunk):
+                continue
+            chunk[idx].affinity_cluster = item.get("affinity_cluster", "")
+            chunk[idx].normalized_category = item.get("normalized_category", "")
 
     return observations
 
@@ -177,7 +198,10 @@ def run_pipeline(project_dir: str | Path, skip_filter: bool = False) -> dict:
         config.respondents,
         config.respondent_speaker,
     )
+    print(f"Загружено транскриптов: {len(transcripts)} — {[tr.respondent_id for tr in transcripts]}")
     transcripts = select_transcripts_for_run(transcripts, config.run_mode)
+    if config.run_mode == RunMode.TEST and len(transcripts) < len(config.respondents or [1]):
+        print(f"[тест] обрабатывается только первый транскрипт: {transcripts[0].respondent_id if transcripts else '—'}")
 
     filtered: list[ParsedTranscript] = []
     for tr in transcripts:
@@ -193,9 +217,9 @@ def run_pipeline(project_dir: str | Path, skip_filter: bool = False) -> dict:
             encoding="utf-8",
         )
 
-    obs_counter = [0]
     all_observations: list[Observation] = []
     for tr in filtered:
+        obs_counter = [0]  # сбрасываем на каждого респондента
         all_observations.extend(_atomize(client, model, config, tr, obs_counter))
 
     all_observations = _code_and_cluster(client, model, all_observations)
