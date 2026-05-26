@@ -69,6 +69,16 @@ def get_client() -> OpenAI:
     return OpenAI(api_key=get_api_key(), base_url=get_base_url())
 
 
+def unwrap_list(result: Any, key: str) -> list:
+    """Extract a list from an LLM result regardless of whether it returned
+    {key: [...]} or a bare [...] directly."""
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        return result.get(key, [])
+    return []
+
+
 def _parse_json_content(content: str) -> Any:
     content = content.strip()
     if content.startswith("```"):

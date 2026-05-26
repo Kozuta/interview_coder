@@ -7,7 +7,7 @@ from pathlib import Path
 
 from coder.config import ProjectConfig, artifacts_dir, load_config, project_path
 from coder.criticality import assign_criticality, build_summary
-from coder.llm import chat_json, get_client, resolve_model
+from coder.llm import chat_json, get_client, resolve_model, unwrap_list
 from coder.models import Observation, ParsedTranscript, RunMode, SegmentType
 from coder.prompts import (
     affinity_prompt,
@@ -32,7 +32,7 @@ def suggest_related_themes(config: ProjectConfig) -> list[str]:
         config.research_questions,
     )
     result = chat_json(client, resolve_model(config.llm_model), prompt)
-    return result.get("themes", [])
+    return unwrap_list(result, "themes")
 
 
 def _respondent_meta(config: ProjectConfig, respondent_id: str) -> dict:
@@ -124,7 +124,7 @@ def _atomize(
         chunk = blocks[start : start + chunk_size]
         prompt = atomize_prompt(transcript.respondent_id, json.dumps(chunk, ensure_ascii=False))
         result = chat_json(client, model, prompt)
-        for raw in result.get("observations", []):
+        for raw in unwrap_list(result, "observations"):
             obs_counter[0] += 1
             rid = transcript.respondent_id.replace(" ", "")
             utt_idx = raw.get("utterance_index")
@@ -158,7 +158,7 @@ def _code_and_cluster(client, model: str, observations: list[Observation]) -> li
             for i, o in enumerate(chunk)
         ]
         code_result = chat_json(client, model, code_observations_prompt(json.dumps(payload, ensure_ascii=False)))
-        coded = {c["temp_id"]: c for c in code_result.get("coded", [])}
+        coded = {c["temp_id"]: c for c in unwrap_list(code_result, "coded")}
         for i, o in enumerate(chunk):
             c = coded.get(i, {})
             o.primary_code = c.get("primary_code", "")
@@ -173,7 +173,7 @@ def _code_and_cluster(client, model: str, observations: list[Observation]) -> li
         chunk = observations[start : start + aff_chunk]
         aff_payload = [{"temp_id": i, "atom": o.atom} for i, o in enumerate(chunk)]
         aff_result = chat_json(client, model, affinity_prompt(json.dumps(aff_payload, ensure_ascii=False)))
-        for item in aff_result.get("clusters", []):
+        for item in unwrap_list(aff_result, "clusters"):
             idx = item.get("temp_id")
             if idx is None or idx >= len(chunk):
                 continue

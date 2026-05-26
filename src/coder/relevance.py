@@ -46,7 +46,7 @@ def filter_transcript_llm(
     transcript: ParsedTranscript,
     chunk_size: int = 25,
 ) -> ParsedTranscript:
-    from coder.llm import chat_json
+    from coder.llm import chat_json, unwrap_list
 
     for start in range(0, len(transcript.utterances), chunk_size):
         chunk = transcript.utterances[start : start + chunk_size]
@@ -66,7 +66,7 @@ def filter_transcript_llm(
             json.dumps(payload, ensure_ascii=False),
         )
         result = chat_json(client, model, prompt)
-        apply_labels(transcript, result.get("labels", []), chunk_indices)
+        apply_labels(transcript, unwrap_list(result, "labels"), chunk_indices)
 
     for u in transcript.utterances:
         if u.segment_type != SegmentType.ON_TOPIC:
