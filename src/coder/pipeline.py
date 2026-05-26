@@ -196,7 +196,8 @@ def _normalize_cluster_names(
         return observations
 
     result = chat_json(client, model, normalize_clusters_prompt(json.dumps(unique, ensure_ascii=False)))
-    mapping = {item["original"]: item["canonical"] for item in result.get("mapping", []) if item.get("canonical")}
+    items = result if isinstance(result, list) else result.get("mapping", [])
+    mapping = {item["original"]: item["canonical"] for item in items if isinstance(item, dict) and item.get("canonical")}
 
     for o in observations:
         if o.affinity_cluster and o.affinity_cluster in mapping:
