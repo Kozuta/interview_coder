@@ -13,6 +13,7 @@ from coder.prompts import (
     affinity_prompt,
     atomize_prompt,
     code_observations_prompt,
+    normalize_clusters_prompt,
     related_themes_prompt,
 )
 from coder.relevance import (
@@ -179,6 +180,27 @@ def _code_and_cluster(client, model: str, observations: list[Observation]) -> li
             chunk[idx].affinity_cluster = item.get("affinity_cluster", "")
             chunk[idx].normalized_category = item.get("normalized_category", "")
 
+    # Нормализация: сливаем синонимичные кластеры из разных чанков в одно имя
+    observations = _normalize_cluster_names(client, model, observations)
+
+    return observations
+
+
+def _normalize_cluster_names(
+    client,
+    model: str,
+    observations: list[Observation],
+) -> list[Observation]:
+    unique = [c for c in dict.fromkeys(o.affinity_cluster for o in observations if o.affinity_cluster)]
+    if len(unique) <= 1:
+        return observations
+
+    result = chat_json(client, model, normalize_clusters_prompt(json.dumps(unique, ensure_ascii=False)))
+    mapping = {item["original"]: item["canonical"] for item in result.get("mapping", []) if item.get("canonical")}
+
+    for o in observations:
+        if o.affinity_cluster and o.affinity_cluster in mapping:
+            o.affinity_cluster = mapping[o.affinity_cluster]
     return observations
 
 
