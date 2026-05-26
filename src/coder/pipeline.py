@@ -118,7 +118,7 @@ def _atomize(
 
     utt_by_index = {u.index: u.text for u in transcript.utterances}
 
-    chunk_size = 15
+    chunk_size = 8
     observations: list[Observation] = []
     for start in range(0, len(blocks), chunk_size):
         chunk = blocks[start : start + chunk_size]
@@ -149,8 +149,8 @@ def _code_and_cluster(client, model: str, observations: list[Observation]) -> li
     if not observations:
         return []
 
-    # Кодировка чанками по 30: quote может быть длинным, ответ растёт быстро
-    code_chunk = 30
+    # Кодировка чанками по 15: quote длинный, ответ растёт быстро — 30 обрезается
+    code_chunk = 15
     for start in range(0, len(observations), code_chunk):
         chunk = observations[start : start + code_chunk]
         payload = [
@@ -167,8 +167,8 @@ def _code_and_cluster(client, model: str, observations: list[Observation]) -> li
             o.kind = c.get("kind", "observation")
             o.is_key_task = bool(c.get("is_key_task", False))
 
-    # Affinity чанками по 50: только atom, вывод компактнее
-    aff_chunk = 50
+    # Affinity чанками по 25: 50 давало обрезанный ответ
+    aff_chunk = 25
     for start in range(0, len(observations), aff_chunk):
         chunk = observations[start : start + aff_chunk]
         aff_payload = [{"temp_id": i, "atom": o.atom} for i, o in enumerate(chunk)]
@@ -195,9 +195,24 @@ def _normalize_cluster_names(
     if len(unique) <= 1:
         return observations
 
-    result = chat_json(client, model, normalize_clusters_prompt(json.dumps(unique, ensure_ascii=False)))
-    items = result if isinstance(result, list) else result.get("mapping", [])
-    mapping = {item["original"]: item["canonical"] for item in items if isinstance(item, dict) and item.get("canonical")}
+    norm_chunk = 40
+    mapping: dict[str, str] = {}
+    for start in range(0, len(unique), norm_chunk):
+        batch = unique[start : start + norm_chunk]
+        result = chat_json(client, model, normalize_clusters_prompt(json.dumps(batch, ensure_ascii=False)))
+        items = result if isinstance(result, list) else result.get("mapping", [])
+        mapping.update(
+            {item["original"]: item["canonical"] for item in items if isinstance(item, dict) and item.get("canonical")}
+        )
+
+    # Второй проход: объединяем canonical-имена между чанками
+    if len(unique) > norm_chunk:
+        canonical_unique = list(dict.fromkeys(mapping.values()))
+        if len(canonical_unique) > 1:
+            result2 = chat_json(client, model, normalize_clusters_prompt(json.dumps(canonical_unique, ensure_ascii=False)))
+            items2 = result2 if isinstance(result2, list) else result2.get("mapping", [])
+            canon_map = {i["original"]: i["canonical"] for i in items2 if isinstance(i, dict) and i.get("canonical")}
+            mapping = {orig: canon_map.get(canon, canon) for orig, canon in mapping.items()}
 
     for o in observations:
         if o.affinity_cluster and o.affinity_cluster in mapping:
