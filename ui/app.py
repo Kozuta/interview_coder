@@ -407,16 +407,14 @@ with tab_run:
             try:
                 result = run_pipeline(project_dir)
                 st.success(f"Наблюдений: {result['observations_count']}")
-                st.write(f"Excel: `{result['xlsx']}`")
-                out = artifacts_dir(project_dir)
-                xlsx_files = list(out.glob("*.xlsx"))
-                if xlsx_files:
-                    st.download_button(
-                        "Скачать XLSX",
-                        data=xlsx_files[-1].read_bytes(),
-                        file_name=xlsx_files[-1].name,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    )
+                xlsx_path = Path(result["xlsx"])
+                st.write(f"Excel: `{xlsx_path}`")
+                st.download_button(
+                    "Скачать XLSX",
+                    data=xlsx_path.read_bytes(),
+                    file_name=xlsx_path.name,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
             except Exception as e:
                 st.error(str(e))
 
