@@ -44,29 +44,11 @@ def filter_transcript_llm(
     model: str,
     config: "ProjectConfig",
     transcript: ParsedTranscript,
-    chunk_size: int = 25,
+    chunk_size: int = 15,
 ) -> ParsedTranscript:
-    from coder.llm import chat_json, unwrap_list
-
     for start in range(0, len(transcript.utterances), chunk_size):
         chunk = transcript.utterances[start : start + chunk_size]
-        chunk_indices = {u.index for u in chunk}
-        payload = [
-            {
-                "index": u.index,
-                "speaker": u.speaker,
-                "is_respondent": u.is_respondent,
-                "text": u.text[:500],
-            }
-            for u in chunk
-        ]
-        prompt = filter_utterances_prompt(
-            config.research_topic,
-            config.related_themes,
-            json.dumps(payload, ensure_ascii=False),
-        )
-        result = chat_json(client, model, prompt)
-        apply_labels(transcript, unwrap_list(result, "labels"), chunk_indices)
+        _filter_chunk(client, model, config, transcript, chunk)
 
     for u in transcript.utterances:
         if u.segment_type != SegmentType.ON_TOPIC:
@@ -77,6 +59,52 @@ def filter_transcript_llm(
             u.include_in_coding = False
 
     return transcript
+
+
+def _filter_chunk(
+    client: "OpenAI",
+    model: str,
+    config: "ProjectConfig",
+    transcript: ParsedTranscript,
+    chunk: list[Utterance],
+) -> None:
+    """Фильтрация чанка реплик; при сбое рекурсивно делит пополам."""
+    from coder.llm import chat_json, unwrap_list
+
+    if not chunk:
+        return
+    chunk_indices = {u.index for u in chunk}
+    payload = [
+        {
+            "index": u.index,
+            "speaker": u.speaker,
+            "is_respondent": u.is_respondent,
+            "text": u.text[:500],
+        }
+        for u in chunk
+    ]
+    prompt = filter_utterances_prompt(
+        config.research_topic,
+        config.related_themes,
+        json.dumps(payload, ensure_ascii=False),
+    )
+    try:
+        result = chat_json(client, model, prompt)
+        apply_labels(transcript, unwrap_list(result, "labels"), chunk_indices)
+    except RuntimeError as e:
+        if len(chunk) == 1:
+            print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск фильтрации реплики {chunk[0].index}: {e}")
+            apply_labels(
+                transcript,
+                [{"index": chunk[0].index, "segment_type": "on_topic",
+                  "include_in_coding": chunk[0].is_respondent, "exclude_reason": None}],
+                chunk_indices,
+            )
+            return
+        mid = len(chunk) // 2
+        print(f"[авторазбивка фильтра] {len(chunk)} → {mid}+{len(chunk)-mid}")
+        _filter_chunk(client, model, config, transcript, chunk[:mid])
+        _filter_chunk(client, model, config, transcript, chunk[mid:])
 
 
 def select_transcripts_for_run(
