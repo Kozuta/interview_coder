@@ -93,6 +93,20 @@ def build_summary(observations: list[Observation], cluster_crit: dict[str, str])
             if o.respondent_meta.get("segment")
         }))
 
+        modal_counter = Counter(tag for o in items for tag in o.modality_tags)
+        dominant_modalities = ", ".join(tag for tag, _ in modal_counter.most_common(3))
+
+        seen_quotes: set[str] = set()
+        rep_quotes: list[str] = []
+        for o in items:
+            q = (o.quote or "").strip()
+            if q and len(q) > 20 and q not in seen_quotes:
+                seen_quotes.add(q)
+                rep_quotes.append(f'«{q[:120]}»')
+            if len(rep_quotes) >= 3:
+                break
+        representative_quotes = " | ".join(rep_quotes)
+
         rows.append(
             SummaryRow(
                 affinity_cluster=cluster,
@@ -103,6 +117,8 @@ def build_summary(observations: list[Observation], cluster_crit: dict[str, str])
                 cluster_frequency=freq_str,
                 respondent_count=respondent_count,
                 respondent_ids_str=", ".join(respondent_ids),
+                dominant_modalities=dominant_modalities,
+                representative_quotes=representative_quotes,
                 segments=segments,
                 secondary_codes="",
                 all_codes=all_codes,

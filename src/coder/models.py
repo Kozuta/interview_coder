@@ -72,8 +72,6 @@ class Observation(BaseModel):
     atom: str
     interview_fragment: str = ""
     context: str
-    consequence: str = ""
-    content: str = ""
     kind: Literal["Наблюдение", "Инсайт"] = "Наблюдение"
     affinity_cluster: str = ""
     primary_code: str = ""
@@ -81,6 +79,9 @@ class Observation(BaseModel):
     modality_tags: list[str] = Field(default_factory=list)
     is_key_task: bool = False
     normalized_category: str = ""
+    jtbd: str = ""
+    workaround: str = ""
+    severity_signal: str = ""
     utterance_index: int | None = None
     respondent_meta: dict[str, Any] = Field(default_factory=dict)
 
@@ -95,6 +96,8 @@ class SummaryRow(BaseModel):
     respondent_count: int = 0
     respondent_ids_str: str = ""
     all_codes: str = ""
+    dominant_modalities: str = ""
+    representative_quotes: str = ""
     segments: str = ""
     secondary_codes: str = ""
     key_params: str = ""

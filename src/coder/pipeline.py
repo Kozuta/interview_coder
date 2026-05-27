@@ -132,8 +132,6 @@ def _atomize(
                 atom=raw.get("atom", ""),
                 interview_fragment=_interview_fragment(transcript, utt_idx) if utt_idx is not None else "",
                 context=raw.get("context", raw.get("context_hint", "")),
-                consequence=raw.get("consequence", "-"),
-                content=raw.get("content", ""),
                 utterance_index=utt_idx,
                 respondent_meta=_respondent_meta(config, transcript.respondent_id),
             )
@@ -210,6 +208,8 @@ def _apply_codes_chunk(client, model: str, chunk: list[Observation]) -> None:
             o.modality_tags = c.get("modality_tags", [])
             o.kind = c.get("kind", "Наблюдение")
             o.is_key_task = bool(c.get("is_key_task", False))
+            o.jtbd = c.get("jtbd") or ""
+            o.workaround = c.get("workaround") or "—"
     except Exception as e:
         if len(chunk) == 1:
             print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск кодировки наблюдения {chunk[0].id}: {e}")
@@ -296,6 +296,16 @@ def _normalize_cluster_names(
     return observations
 
 
+def _compute_severity_signal(o: Observation) -> str:
+    if o.primary_code == "Барьер":
+        return "Barrier"
+    if "Невозможность" in o.modality_tags:
+        return "Impossible"
+    if o.primary_code == "Проблема":
+        return "Friction"
+    return ""
+
+
 def _mark_all_respondent_utterances(transcript: ParsedTranscript) -> None:
     """Без LLM-фильтра: включаем все содержательные реплики респондента."""
     for u in transcript.utterances:
@@ -345,6 +355,8 @@ def run_pipeline(project_dir: str | Path, skip_filter: bool = False) -> dict:
         all_observations.extend(_atomize(client, model, config, tr, obs_counter))
 
     all_observations = _code_and_cluster(client, model, all_observations)
+    for o in all_observations:
+        o.severity_signal = _compute_severity_signal(o)
     cluster_crit = assign_criticality(all_observations)
     summary = build_summary(all_observations, cluster_crit)
 
