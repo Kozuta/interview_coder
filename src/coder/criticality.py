@@ -74,16 +74,24 @@ def build_summary(observations: list[Observation], cluster_crit: dict[str, str])
     for cluster, items in sorted(by_cluster.items()):
         total = len(items)
         code_counts = Counter(o.primary_code for o in items)
-        dominant_code, dominant_count = code_counts.most_common(1)[0] if code_counts else ("", 0)
-        freq_str = f"{dominant_count}/{total}"
+        dominant_code = code_counts.most_common(1)[0][0] if code_counts else ""
 
-        respondent_ids = {o.respondent_id for o in items}
+        respondent_ids = sorted({o.respondent_id for o in items})
+        respondent_count = len(respondent_ids)
+        freq_str = f"{total} набл. / {respondent_count} респ."
+
+        all_codes = ", ".join(sorted({
+            code
+            for o in items
+            for code in ([o.primary_code] if o.primary_code and o.primary_code != "-" else [])
+                       + ([o.secondary_code] if o.secondary_code and o.secondary_code != "-" else [])
+        }))
+
         segments = ", ".join(sorted({
             str(o.respondent_meta.get("segment", ""))
             for o in items
             if o.respondent_meta.get("segment")
         }))
-        secondary_codes = ", ".join(sorted({o.secondary_code for o in items if o.secondary_code}))
 
         rows.append(
             SummaryRow(
@@ -93,9 +101,11 @@ def build_summary(observations: list[Observation], cluster_crit: dict[str, str])
                 observation_ids=[o.id for o in items],
                 criticality=cluster_crit.get(cluster, "Low"),
                 cluster_frequency=freq_str,
-                respondent_count=len(respondent_ids),
+                respondent_count=respondent_count,
+                respondent_ids_str=", ".join(respondent_ids),
                 segments=segments,
-                secondary_codes=secondary_codes,
+                secondary_codes="",
+                all_codes=all_codes,
                 key_params="",
                 primary_code=dominant_code,
                 count=total,

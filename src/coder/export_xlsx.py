@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -165,25 +166,50 @@ def export_workbook(
 
     # Сводная
     ws = wb.create_sheet("Сводная")
+
+    # Собираем наблюдения по кластеру для агрегации мета-полей
+    obs_by_cluster: dict[str, list[Observation]] = defaultdict(list)
+    for o in observations:
+        obs_by_cluster[o.affinity_cluster or "Без кластера"].append(o)
+
+    # Динамические столбцы: все кастомные поля респондентов
+    meta_fields = config.respondent_fields  # RespondentField list
+    meta_headers = [f.label for f in meta_fields]
+    meta_keys = [f.key for f in meta_fields]
+
     _sheet_headers(
         ws,
         [
             "Кластер", "Категория", "Описание",
-            "Кол-во респондентов", "Частота",
-            "Код", "Код 2", "Сегменты", "Критичность", "ID наблюдений",
+            "Кол-во респондентов", "Респонденты", "Частота",
+            "Коды",
+            *meta_headers,
+            "Критичность", "ID наблюдений",
         ],
     )
     for s in summary:
+        cluster_obs = obs_by_cluster.get(s.affinity_cluster, [])
+
+        # Уникальные значения каждого мета-поля для кластера
+        meta_values = []
+        for key in meta_keys:
+            vals = ", ".join(sorted({
+                str(o.respondent_meta.get(key, "") or "")
+                for o in cluster_obs
+                if o.respondent_meta.get(key)
+            }))
+            meta_values.append(vals)
+
         ws.append(
             [
                 s.affinity_cluster,
                 s.normalized_category,
                 s.description,
                 s.respondent_count,
+                s.respondent_ids_str,
                 s.cluster_frequency,
-                s.primary_code,
-                s.secondary_codes,
-                s.segments,
+                s.all_codes,
+                *meta_values,
                 s.criticality,
                 ", ".join(s.observation_ids),
             ]

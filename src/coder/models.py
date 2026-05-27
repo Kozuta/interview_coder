@@ -93,6 +93,8 @@ class SummaryRow(BaseModel):
     criticality: str = ""
     cluster_frequency: str = ""
     respondent_count: int = 0
+    respondent_ids_str: str = ""
+    all_codes: str = ""
     segments: str = ""
     secondary_codes: str = ""
     key_params: str = ""
