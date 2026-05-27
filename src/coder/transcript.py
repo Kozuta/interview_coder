@@ -95,7 +95,12 @@ def load_project_transcripts(
     if respondents:
         results: list[ParsedTranscript] = []
         for resp in respondents:
-            fpath = tdir / resp.transcript_file
+            fpath = (tdir / resp.transcript_file).resolve()
+            if not fpath.is_relative_to(tdir.resolve()):
+                raise ValueError(
+                    f"Небезопасный путь к транскрипту: '{resp.transcript_file}' "
+                    f"выходит за пределы папки {tdir}"
+                )
             if not fpath.exists():
                 raise FileNotFoundError(f"Транскрипт не найден: {fpath}")
             speaker = resp.respondent_speaker or respondent_speaker

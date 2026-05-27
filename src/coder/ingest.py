@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_MAX_DOCX_XML_BYTES = 50 * 1024 * 1024  # 50 МБ распакованного document.xml
 
 
 def read_text_file(path: Path) -> str:
@@ -16,6 +17,12 @@ def read_text_file(path: Path) -> str:
 
 def read_docx(path: Path) -> str:
     with zipfile.ZipFile(path) as zf:
+        info = zf.getinfo("word/document.xml")
+        if info.file_size > _MAX_DOCX_XML_BYTES:
+            raise ValueError(
+                f"Файл слишком большой: document.xml занимает "
+                f"{info.file_size // 1_048_576} МБ (лимит 50 МБ)"
+            )
         xml = zf.read("word/document.xml")
     root = ET.fromstring(xml)
     lines: list[str] = []
