@@ -273,22 +273,26 @@ def _normalize_cluster_names(
     if len(unique) <= 1:
         return observations
 
-    norm_chunk = 20
-    mapping: dict[str, str] = {}
-    for start in range(0, len(unique), norm_chunk):
-        batch = unique[start : start + norm_chunk]
-        mapping.update(_normalize_batch(client, model, batch))
+    try:
+        norm_chunk = 10
+        mapping: dict[str, str] = {}
+        for start in range(0, len(unique), norm_chunk):
+            batch = unique[start : start + norm_chunk]
+            mapping.update(_normalize_batch(client, model, batch))
 
-    # Второй проход: объединяем canonical-имена между чанками
-    if len(unique) > norm_chunk:
-        canonical_unique = list(dict.fromkeys(mapping.values()))
-        if len(canonical_unique) > 1:
-            canon_map = _normalize_batch(client, model, canonical_unique)
-            mapping = {orig: canon_map.get(canon, canon) for orig, canon in mapping.items()}
+        # Второй проход: объединяем canonical-имена между чанками
+        if len(unique) > norm_chunk:
+            canonical_unique = list(dict.fromkeys(mapping.values()))
+            if len(canonical_unique) > 1:
+                canon_map = _normalize_batch(client, model, canonical_unique)
+                mapping = {orig: canon_map.get(canon, canon) for orig, canon in mapping.items()}
 
-    for o in observations:
-        if o.affinity_cluster and o.affinity_cluster in mapping:
-            o.affinity_cluster = mapping[o.affinity_cluster]
+        for o in observations:
+            if o.affinity_cluster and o.affinity_cluster in mapping:
+                o.affinity_cluster = mapping[o.affinity_cluster]
+    except Exception as e:
+        print(f"[ПРЕДУПРЕЖДЕНИЕ] Нормализация кластеров пропущена: {e}")
+
     return observations
 
 
