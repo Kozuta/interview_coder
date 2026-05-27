@@ -133,9 +133,15 @@ def chat_json(
         print(f"[llm] json_object mode не поддерживается ({e}), повтор без response_format")
         response = client.chat.completions.create(**kwargs)
 
-    content = response.choices[0].message.content or "{}"
+    choice = response.choices[0]
+    content = choice.message.content or "{}"
     if not content.strip():
         raise RuntimeError(
             f"Пустой ответ модели {model}. Попробуйте deepseek-chat или увеличьте max_tokens."
+        )
+    if getattr(choice, "finish_reason", None) == "length":
+        raise RuntimeError(
+            f"TOKEN_LIMIT: модель {model} обрезала ответ — превышен лимит токенов. "
+            "Уменьшите чанк или передайте меньше данных."
         )
     return _parse_json_content(content)

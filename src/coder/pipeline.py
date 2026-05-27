@@ -118,72 +118,150 @@ def _atomize(
 
     utt_by_index = {u.index: u.text for u in transcript.utterances}
 
-    chunk_size = 8
+    raw_observations = _atomize_blocks(client, model, transcript.respondent_id, blocks)
     observations: list[Observation] = []
+    for raw in raw_observations:
+        obs_counter[0] += 1
+        rid = transcript.respondent_id.replace(" ", "")
+        utt_idx = raw.get("utterance_index")
+        observations.append(
+            Observation(
+                id=f"{rid}-O{obs_counter[0]:04d}",
+                respondent_id=transcript.respondent_id,
+                quote=utt_by_index.get(utt_idx, "") if utt_idx is not None else "",
+                atom=raw.get("atom", ""),
+                interview_fragment=_interview_fragment(transcript, utt_idx) if utt_idx is not None else "",
+                context=raw.get("context", raw.get("context_hint", "")),
+                consequence=raw.get("consequence", "-"),
+                content=raw.get("content", ""),
+                utterance_index=utt_idx,
+                respondent_meta=_respondent_meta(config, transcript.respondent_id),
+            )
+        )
+    return observations
+
+
+def _atomize_blocks(
+    client,
+    model: str,
+    respondent_id: str,
+    blocks: list[dict],
+    chunk_size: int = 8,
+) -> list[dict]:
+    """Атомизация с авто-бисекцией: если LLM обрезает ответ — делим чанк пополам."""
+    if not blocks:
+        return []
+    raw: list[dict] = []
     for start in range(0, len(blocks), chunk_size):
         chunk = blocks[start : start + chunk_size]
-        prompt = atomize_prompt(transcript.respondent_id, json.dumps(chunk, ensure_ascii=False))
-        result = chat_json(client, model, prompt)
-        for raw in unwrap_list(result, "observations"):
-            obs_counter[0] += 1
-            rid = transcript.respondent_id.replace(" ", "")
-            utt_idx = raw.get("utterance_index")
-            observations.append(
-                Observation(
-                    id=f"{rid}-O{obs_counter[0]:04d}",
-                    respondent_id=transcript.respondent_id,
-                    quote=utt_by_index.get(utt_idx, "") if utt_idx is not None else "",
-                    atom=raw.get("atom", ""),
-                    interview_fragment=_interview_fragment(transcript, utt_idx) if utt_idx is not None else "",
-                    context=raw.get("context", raw.get("context_hint", "")),
-                    consequence=raw.get("consequence", "-"),
-                    content=raw.get("content", ""),
-                    utterance_index=utt_idx,
-                    respondent_meta=_respondent_meta(config, transcript.respondent_id),
-                )
-            )
-    return observations
+        raw.extend(_atomize_chunk(client, model, respondent_id, chunk))
+    return raw
+
+
+def _atomize_chunk(
+    client,
+    model: str,
+    respondent_id: str,
+    blocks: list[dict],
+) -> list[dict]:
+    if not blocks:
+        return []
+    try:
+        result = chat_json(client, model, atomize_prompt(respondent_id, json.dumps(blocks, ensure_ascii=False)))
+        return [r for r in unwrap_list(result, "observations") if isinstance(r, dict)]
+    except RuntimeError as e:
+        if len(blocks) == 1:
+            print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск атомизации реплики {blocks[0].get('utterance_index')}: {e}")
+            return []
+        mid = len(blocks) // 2
+        print(f"[авторазбивка атомизации] {len(blocks)} → {mid}+{len(blocks)-mid}")
+        return _atomize_chunk(client, model, respondent_id, blocks[:mid]) + \
+               _atomize_chunk(client, model, respondent_id, blocks[mid:])
 
 
 def _code_and_cluster(client, model: str, observations: list[Observation]) -> list[Observation]:
     if not observations:
         return []
 
-    # Кодировка чанками по 15: quote длинный, ответ растёт быстро — 30 обрезается
-    code_chunk = 15
-    for start in range(0, len(observations), code_chunk):
-        chunk = observations[start : start + code_chunk]
-        payload = [
-            {"temp_id": i, "atom": o.atom, "quote": o.quote}
-            for i, o in enumerate(chunk)
-        ]
-        code_result = chat_json(client, model, code_observations_prompt(json.dumps(payload, ensure_ascii=False)))
-        coded = {c["temp_id"]: c for c in unwrap_list(code_result, "coded")}
-        for i, o in enumerate(chunk):
-            c = coded.get(i, {})
-            o.primary_code = c.get("primary_code", "")
-            o.secondary_code = c.get("secondary_code")
-            o.modality_tags = c.get("modality_tags", [])
-            o.kind = c.get("kind", "observation")
-            o.is_key_task = bool(c.get("is_key_task", False))
+    for start in range(0, len(observations), 15):
+        _apply_codes_chunk(client, model, observations[start : start + 15])
 
-    # Affinity чанками по 25: 50 давало обрезанный ответ
-    aff_chunk = 25
-    for start in range(0, len(observations), aff_chunk):
-        chunk = observations[start : start + aff_chunk]
-        aff_payload = [{"temp_id": i, "atom": o.atom} for i, o in enumerate(chunk)]
-        aff_result = chat_json(client, model, affinity_prompt(json.dumps(aff_payload, ensure_ascii=False)))
-        for item in unwrap_list(aff_result, "clusters"):
-            idx = item.get("temp_id")
-            if idx is None or idx >= len(chunk):
-                continue
-            chunk[idx].affinity_cluster = item.get("affinity_cluster", "")
-            chunk[idx].normalized_category = item.get("normalized_category", "")
+    for start in range(0, len(observations), 25):
+        _apply_affinity_chunk(client, model, observations[start : start + 25])
 
     # Нормализация: сливаем синонимичные кластеры из разных чанков в одно имя
     observations = _normalize_cluster_names(client, model, observations)
 
     return observations
+
+
+def _apply_codes_chunk(client, model: str, chunk: list[Observation]) -> None:
+    """Кодировка наблюдений in-place; при сбое рекурсивно делит чанк пополам."""
+    if not chunk:
+        return
+    payload = [{"temp_id": i, "atom": o.atom, "quote": o.quote} for i, o in enumerate(chunk)]
+    try:
+        result = chat_json(client, model, code_observations_prompt(json.dumps(payload, ensure_ascii=False)))
+        coded = {c["temp_id"]: c for c in unwrap_list(result, "coded") if isinstance(c, dict)}
+        for i, o in enumerate(chunk):
+            c = coded.get(i, {})
+            o.primary_code = c.get("primary_code", "")
+            o.secondary_code = c.get("secondary_code")
+            o.modality_tags = c.get("modality_tags", [])
+            o.kind = c.get("kind", "Наблюдение")
+            o.is_key_task = bool(c.get("is_key_task", False))
+    except RuntimeError as e:
+        if len(chunk) == 1:
+            print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск кодировки наблюдения {chunk[0].id}: {e}")
+            return
+        mid = len(chunk) // 2
+        print(f"[авторазбивка кодировки] {len(chunk)} → {mid}+{len(chunk)-mid}")
+        _apply_codes_chunk(client, model, chunk[:mid])
+        _apply_codes_chunk(client, model, chunk[mid:])
+
+
+def _apply_affinity_chunk(client, model: str, chunk: list[Observation]) -> None:
+    """Affinity-кластеризация in-place; при сбое рекурсивно делит чанк пополам."""
+    if not chunk:
+        return
+    payload = [{"temp_id": i, "atom": o.atom} for i, o in enumerate(chunk)]
+    try:
+        result = chat_json(client, model, affinity_prompt(json.dumps(payload, ensure_ascii=False)))
+        for item in unwrap_list(result, "clusters"):
+            if not isinstance(item, dict):
+                continue
+            idx = item.get("temp_id")
+            if idx is None or idx >= len(chunk):
+                continue
+            chunk[idx].affinity_cluster = item.get("affinity_cluster", "")
+            chunk[idx].normalized_category = item.get("normalized_category", "")
+    except RuntimeError as e:
+        if len(chunk) == 1:
+            print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск affinity наблюдения {chunk[0].id}: {e}")
+            return
+        mid = len(chunk) // 2
+        print(f"[авторазбивка affinity] {len(chunk)} → {mid}+{len(chunk)-mid}")
+        _apply_affinity_chunk(client, model, chunk[:mid])
+        _apply_affinity_chunk(client, model, chunk[mid:])
+
+
+def _normalize_batch(client, model: str, clusters: list[str]) -> dict[str, str]:
+    """Нормализует список кластеров; при сбое рекурсивно делит пополам."""
+    if not clusters:
+        return {}
+    try:
+        result = chat_json(client, model, normalize_clusters_prompt(json.dumps(clusters, ensure_ascii=False)))
+        items = result if isinstance(result, list) else result.get("mapping", [])
+        return {item["original"]: item["canonical"] for item in items if isinstance(item, dict) and item.get("canonical")}
+    except RuntimeError as e:
+        if len(clusters) == 1:
+            print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск нормализации кластера: {e}")
+            return {clusters[0]: clusters[0]}
+        mid = len(clusters) // 2
+        print(f"[авторазбивка нормализации] {len(clusters)} → {mid}+{len(clusters)-mid}")
+        left = _normalize_batch(client, model, clusters[:mid])
+        right = _normalize_batch(client, model, clusters[mid:])
+        return {**left, **right}
 
 
 def _normalize_cluster_names(
@@ -199,19 +277,13 @@ def _normalize_cluster_names(
     mapping: dict[str, str] = {}
     for start in range(0, len(unique), norm_chunk):
         batch = unique[start : start + norm_chunk]
-        result = chat_json(client, model, normalize_clusters_prompt(json.dumps(batch, ensure_ascii=False)))
-        items = result if isinstance(result, list) else result.get("mapping", [])
-        mapping.update(
-            {item["original"]: item["canonical"] for item in items if isinstance(item, dict) and item.get("canonical")}
-        )
+        mapping.update(_normalize_batch(client, model, batch))
 
     # Второй проход: объединяем canonical-имена между чанками
     if len(unique) > norm_chunk:
         canonical_unique = list(dict.fromkeys(mapping.values()))
         if len(canonical_unique) > 1:
-            result2 = chat_json(client, model, normalize_clusters_prompt(json.dumps(canonical_unique, ensure_ascii=False)))
-            items2 = result2 if isinstance(result2, list) else result2.get("mapping", [])
-            canon_map = {i["original"]: i["canonical"] for i in items2 if isinstance(i, dict) and i.get("canonical")}
+            canon_map = _normalize_batch(client, model, canonical_unique)
             mapping = {orig: canon_map.get(canon, canon) for orig, canon in mapping.items()}
 
     for o in observations:
