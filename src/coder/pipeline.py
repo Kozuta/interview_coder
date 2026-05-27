@@ -169,7 +169,7 @@ def _atomize_chunk(
     try:
         result = chat_json(client, model, atomize_prompt(respondent_id, json.dumps(blocks, ensure_ascii=False)))
         return [r for r in unwrap_list(result, "observations") if isinstance(r, dict)]
-    except RuntimeError as e:
+    except Exception as e:
         if len(blocks) == 1:
             print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск атомизации реплики {blocks[0].get('utterance_index')}: {e}")
             return []
@@ -210,7 +210,7 @@ def _apply_codes_chunk(client, model: str, chunk: list[Observation]) -> None:
             o.modality_tags = c.get("modality_tags", [])
             o.kind = c.get("kind", "Наблюдение")
             o.is_key_task = bool(c.get("is_key_task", False))
-    except RuntimeError as e:
+    except Exception as e:
         if len(chunk) == 1:
             print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск кодировки наблюдения {chunk[0].id}: {e}")
             return
@@ -235,7 +235,7 @@ def _apply_affinity_chunk(client, model: str, chunk: list[Observation]) -> None:
                 continue
             chunk[idx].affinity_cluster = item.get("affinity_cluster", "")
             chunk[idx].normalized_category = item.get("normalized_category", "")
-    except RuntimeError as e:
+    except Exception as e:
         if len(chunk) == 1:
             print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск affinity наблюдения {chunk[0].id}: {e}")
             return
@@ -253,7 +253,7 @@ def _normalize_batch(client, model: str, clusters: list[str]) -> dict[str, str]:
         result = chat_json(client, model, normalize_clusters_prompt(json.dumps(clusters, ensure_ascii=False)))
         items = result if isinstance(result, list) else result.get("mapping", [])
         return {item["original"]: item["canonical"] for item in items if isinstance(item, dict) and item.get("canonical")}
-    except RuntimeError as e:
+    except Exception as e:
         if len(clusters) == 1:
             print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск нормализации кластера: {e}")
             return {clusters[0]: clusters[0]}
@@ -273,7 +273,7 @@ def _normalize_cluster_names(
     if len(unique) <= 1:
         return observations
 
-    norm_chunk = 40
+    norm_chunk = 20
     mapping: dict[str, str] = {}
     for start in range(0, len(unique), norm_chunk):
         batch = unique[start : start + norm_chunk]

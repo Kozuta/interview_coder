@@ -91,7 +91,7 @@ def _filter_chunk(
     try:
         result = chat_json(client, model, prompt)
         apply_labels(transcript, unwrap_list(result, "labels"), chunk_indices)
-    except RuntimeError as e:
+    except Exception as e:
         if len(chunk) == 1:
             print(f"[ПРЕДУПРЕЖДЕНИЕ] Пропуск фильтрации реплики {chunk[0].index}: {e}")
             apply_labels(

@@ -102,6 +102,11 @@ def _parse_json_content(content: str) -> Any:
 
     truncated = len(content) > 500
     hint = " (похоже, ответ обрезан — превышен лимит токенов)" if truncated else ""
+    # Re-parse to get the exact json error position for diagnostics
+    try:
+        json.loads(content)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Ошибка парсинга JSON{hint}: {e}\n---\n{content[-500:]}") from e
     raise RuntimeError(f"Ошибка парсинга JSON{hint}:\n---\n{content[-500:]}")
 
 
